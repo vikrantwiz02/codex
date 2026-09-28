@@ -39,6 +39,7 @@ use crate::CodexResponsesHeaders;
 use crate::tools::ExecutedToolCalls;
 use async_channel::Sender;
 use codex_api::AgentIdentityTelemetry;
+use codex_api::AnthropicMessagesClient as ApiAnthropicMessagesClient;
 use codex_api::ApiError;
 use codex_api::AuthProvider;
 use codex_api::Compression;
@@ -1755,13 +1756,28 @@ impl ModelClientSession {
                 request.input = input;
             }
             inference_trace_attempt.record_started(&request);
-            let client = ApiResponsesClient::new(
-                transport,
-                client_setup.api_provider,
-                client_setup.api_auth,
-            )
-            .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
-            let stream_result = client.stream_request(request, options).await;
+            let stream_result = match self.client.state.provider.info().wire_api {
+                WireApi::Responses => {
+                    ApiResponsesClient::new(
+                        transport,
+                        client_setup.api_provider,
+                        client_setup.api_auth,
+                    )
+                    .with_telemetry(Some(request_telemetry), Some(sse_telemetry))
+                    .stream_request(request, options)
+                    .await
+                }
+                WireApi::AnthropicMessages => {
+                    ApiAnthropicMessagesClient::new(
+                        transport,
+                        client_setup.api_provider,
+                        client_setup.api_auth,
+                    )
+                    .with_telemetry(Some(request_telemetry), Some(sse_telemetry))
+                    .stream_request(request, options)
+                    .await
+                }
+            };
 
             match stream_result {
                 Ok(stream) => {
@@ -2253,6 +2269,20 @@ impl ModelClientSession {
                     }
                 }
 
+                self.stream_responses_api(
+                    prompt,
+                    model_info,
+                    session_telemetry,
+                    effort,
+                    summary,
+                    service_tier,
+                    responses_metadata,
+                    inference_trace,
+                )
+                .await
+            }
+            // The Messages API has no WebSocket transport; the HTTP path translates the request.
+            WireApi::AnthropicMessages => {
                 self.stream_responses_api(
                     prompt,
                     model_info,

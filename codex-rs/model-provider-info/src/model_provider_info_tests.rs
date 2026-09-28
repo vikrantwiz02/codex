@@ -197,6 +197,53 @@ wire_api = "chat"
 }
 
 #[test]
+fn test_deserialize_anthropic_messages_wire_api() {
+    let provider_toml = r#"
+name = "Anthropic proxy"
+base_url = "https://anthropic-proxy.example.com/v1"
+env_key = "ANTHROPIC_API_KEY"
+wire_api = "anthropic_messages"
+        "#;
+
+    let provider: ModelProviderInfo = toml::from_str(provider_toml).unwrap();
+    assert_eq!(
+        provider,
+        ModelProviderInfo {
+            name: "Anthropic proxy".into(),
+            base_url: Some("https://anthropic-proxy.example.com/v1".into()),
+            env_key: Some("ANTHROPIC_API_KEY".into()),
+            wire_api: WireApi::AnthropicMessages,
+            ..Default::default()
+        }
+    );
+}
+
+#[test]
+fn test_merge_configured_model_providers_replaces_built_in_anthropic() {
+    let custom_anthropic = ModelProviderInfo {
+        name: "My Anthropic gateway".into(),
+        base_url: Some("https://gateway.example.com/v1".into()),
+        env_key: Some("GATEWAY_API_KEY".into()),
+        ..ModelProviderInfo::default()
+    };
+    let configured_model_providers = std::collections::HashMap::from([(
+        ANTHROPIC_PROVIDER_ID.to_string(),
+        custom_anthropic.clone(),
+    )]);
+
+    let mut expected = built_in_model_providers(/*openai_base_url*/ None);
+    expected.insert(ANTHROPIC_PROVIDER_ID.to_string(), custom_anthropic);
+
+    assert_eq!(
+        merge_configured_model_providers(
+            built_in_model_providers(/*openai_base_url*/ None),
+            configured_model_providers,
+        ),
+        Ok(expected)
+    );
+}
+
+#[test]
 fn test_deserialize_websocket_connect_timeout() {
     let provider_toml = r#"
 name = "OpenAI"
